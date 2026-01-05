@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jewel Match</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #e94560;
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+        }
+
+        .game-info {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px 30px;
+            border-radius: 10px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .info-box label {
+            color: #a0a0a0;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .info-box .value {
+            color: #fff;
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        #gameCanvas {
+            border-radius: 10px;
+            box-shadow: 0 0 40px rgba(233, 69, 96, 0.3);
+            cursor: pointer;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #e94560, #c73e54);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(233, 69, 96, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .instructions {
+            margin-top: 20px;
+            color: #a0a0a0;
+            text-align: center;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Jewel Match</h1>
+    <div class="game-info">
+        <div class="info-box">
+            <label>Score</label>
+            <div class="value" id="score">0</div>
+        </div>
+        <div class="info-box">
+            <label>Moves</label>
+            <div class="value" id="moves">0</div>
+        </div>
+    </div>
+    <canvas id="gameCanvas" width="480" height="480"></canvas>
+    <div class="controls">
+        <button id="newGame">New Game</button>
+        <button id="hint">Hint</button>
+        <button id="toggleSound">Sound: ON</button>
+    </div>
+    <p class="instructions">Click a gem to automatically swap with an adjacent match. Match 3 or more of the same color to score!</p>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const GRID_SIZE = 8;
+        const CELL_SIZE = canvas.width / GRID_SIZE;
+        const GEM_RADIUS = CELL_SIZE / 2 - 5;
+
+        const COLORS = [
+            '#e94560', // Red
+            '#0f9b0f', // Green
+            '#3498db', // Blue
+            '#f39c12', // Orange
+            '#9b59b6', // Purple
+            '#1abc9c', // Teal
+        ];
+
+        let board = [];
+        let score = 0;
+        let moves = 0;
+        let isAnimating = false;
+        let hintGem = null;
+        let soundEnabled = true;
+
+        // Audio context for sound effects
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!soundEnabled || !audioCtx) return;
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            switch(type) {
+                case 'select':
+                    oscillator.frequency.setValueAtTime(800, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.05);
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.05);
+                    break;
+
+                case 'swap':
+                    oscillator.frequency.setValueAtTime(400, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.08);
+                    oscillator.type = 'triangle';
+                    gainNode.gain.setValueAtTime(0.1, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.08);
+                    break;
+
+                case 'match':
+                    const baseFreq = 500 + Math.min(200, score / 10);
+                    oscillator.frequency.setValueAtTime(baseFreq, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(baseFreq * 1.5, now + 0.1);
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.15, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.15);
+
+                    // Add a second harmonic for richer sound
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(audioCtx.destination);
+                    osc2.frequency.setValueAtTime(baseFreq * 1.5, now);
+                    osc2.frequency.exponentialRampToValueAtTime(baseFreq * 2, now + 0.1);
+                    osc2.type = 'triangle';
+                    gain2.gain.setValueAtTime(0.08, now);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                    osc2.start(now);
+                    osc2.stop(now + 0.15);
+                    break;
+
+                case 'invalid':
+                    oscillator.frequency.setValueAtTime(200, now);
+                    oscillator.frequency.linearRampToValueAtTime(150, now + 0.1);
+                    oscillator.type = 'sawtooth';
+                    gainNode.gain.setValueAtTime(0.08, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.1);
+                    break;
+
+                case 'drop':
+                    oscillator.frequency.setValueAtTime(600, now);
+                    oscillator.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+                    oscillator.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.05, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.1);
+                    break;
+            }
+        }
+
+        class Gem {
+            constructor(row, col, color) {
+                this.row = row;
+                this.col = col;
+                this.color = color;
+                this.x = col * CELL_SIZE + CELL_SIZE / 2;
+                this.y = row * CELL_SIZE + CELL_SIZE / 2;
+                this.targetX = this.x;
+                this.targetY = this.y;
+                this.scale = 1;
+                this.removing = false;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.scale(this.scale, this.scale);
+
+                // Draw gem shadow
+                ctx.beginPath();
+                ctx.arc(3, 3, GEM_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fill();
+
+                // Draw gem background
+                const gradient = ctx.createRadialGradient(-5, -5, 0, 0, 0, GEM_RADIUS);
+                gradient.addColorStop(0, this.lightenColor(this.color, 50));
+                gradient.addColorStop(0.5, this.color);
+                gradient.addColorStop(1, this.darkenColor(this.color, 30));
+
+                ctx.beginPath();
+                ctx.arc(0, 0, GEM_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Draw shine
+                ctx.beginPath();
+                ctx.arc(-GEM_RADIUS / 3, -GEM_RADIUS / 3, GEM_RADIUS / 4, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.fill();
+
+                // Draw hint ring
+                if (hintGem && hintGem.row === this.row && hintGem.col === this.col) {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, GEM_RADIUS + 3, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#ffeb3b';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+
+                ctx.restore();
+            }
+
+            lightenColor(color, amount) {
+                const num = parseInt(color.slice(1), 16);
+                const r = Math.min(255, (num >> 16) + amount);
+                const g = Math.min(255, ((num >> 8) & 0x00FF) + amount);
+                const b = Math.min(255, (num & 0x0000FF) + amount);
+                return `rgb(${r},${g},${b})`;
+            }
+
+            darkenColor(color, amount) {
+                const num = parseInt(color.slice(1), 16);
+                const r = Math.max(0, (num >> 16) - amount);
+                const g = Math.max(0, ((num >> 8) & 0x00FF) - amount);
+                const b = Math.max(0, (num & 0x0000FF) - amount);
+                return `rgb(${r},${g},${b})`;
+            }
+
+            update() {
+                this.x += (this.targetX - this.x) * 0.2;
+                this.y += (this.targetY - this.y) * 0.2;
+            }
+        }
+
+        function init() {
+            board = [];
+            for (let row = 0; row < GRID_SIZE; row++) {
+                board[row] = [];
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    let color;
+                    do {
+                        color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    } while (wouldCreateMatch(row, col, color));
+                    board[row][col] = new Gem(row, col, color);
+                }
+            }
+            score = 0;
+            moves = 0;
+            hintGem = null;
+            updateUI();
+            draw();
+        }
+
+        function wouldCreateMatch(row, col, color) {
+            // Check horizontal
+            if (col >= 2 && board[row][col-1]?.color === color && board[row][col-2]?.color === color) {
+                return true;
+            }
+            // Check vertical
+            if (row >= 2 && board[row-1]?.[col]?.color === color && board[row-2]?.[col]?.color === color) {
+                return true;
+            }
+            return false;
+        }
+
+        function draw() {
+            // Draw background
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= GRID_SIZE; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * CELL_SIZE, 0);
+                ctx.lineTo(i * CELL_SIZE, canvas.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(canvas.width, i * CELL_SIZE);
+                ctx.stroke();
+            }
+
+            // Draw gems
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    if (board[row][col]) {
+                        board[row][col].draw();
+                    }
+                }
+            }
+        }
+
+        function findMatches() {
+            const matches = [];
+
+            // Find horizontal matches
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE - 2; col++) {
+                    const color = board[row][col]?.color;
+                    if (color && board[row][col + 1]?.color === color && board[row][col + 2]?.color === color) {
+                        const match = [{row, col}];
+                        let c = col + 1;
+                        while (c < GRID_SIZE && board[row][c]?.color === color) {
+                            match.push({row, col: c});
+                            c++;
+                        }
+                        matches.push(match);
+                        col = c - 1;
+                    }
+                }
+            }
+
+            // Find vertical matches
+            for (let col = 0; col < GRID_SIZE; col++) {
+                for (let row = 0; row < GRID_SIZE - 2; row++) {
+                    const color = board[row][col]?.color;
+                    if (color && board[row + 1]?.[col]?.color === color && board[row + 2]?.[col]?.color === color) {
+                        const match = [{row, col}];
+                        let r = row + 1;
+                        while (r < GRID_SIZE && board[r]?.[col]?.color === color) {
+                            match.push({row: r, col});
+                            r++;
+                        }
+                        matches.push(match);
+                        row = r - 1;
+                    }
+                }
+            }
+
+            return matches;
+        }
+
+        function removeMatches(matches) {
+            return new Promise(resolve => {
+                const toRemove = new Set();
+                for (const match of matches) {
+                    for (const gem of match) {
+                        toRemove.add(`${gem.row},${gem.col}`);
+                    }
+                }
+
+                score += toRemove.size * 10;
+                updateUI();
+                playSound('match');
+
+                const gemsToRemove = [];
+                for (const key of toRemove) {
+                    const [row, col] = key.split(',').map(Number);
+                    if (board[row][col]) {
+                        gemsToRemove.push(board[row][col]);
+                    }
+                }
+
+                animateRemove(gemsToRemove).then(() => {
+                    for (const key of toRemove) {
+                        const [row, col] = key.split(',').map(Number);
+                        board[row][col] = null;
+                    }
+                    resolve();
+                });
+            });
+        }
+
+        function animateRemove(gems) {
+            return new Promise(resolve => {
+                isAnimating = true;
+                let progress = 0;
+                const animate = () => {
+                    progress += 0.1;
+                    for (const gem of gems) {
+                        gem.scale = 1 - progress;
+                    }
+                    draw();
+                    if (progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        isAnimating = false;
+                        resolve();
+                    }
+                };
+                animate();
+            });
+        }
+
+        function dropGems() {
+            return new Promise(resolve => {
+                let moved = false;
+
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    let emptyRow = GRID_SIZE - 1;
+                    for (let row = GRID_SIZE - 1; row >= 0; row--) {
+                        if (board[row][col]) {
+                            if (row !== emptyRow) {
+                                board[emptyRow][col] = board[row][col];
+                                board[row][col] = null;
+                                board[emptyRow][col].row = emptyRow;
+                                board[emptyRow][col].targetY = emptyRow * CELL_SIZE + CELL_SIZE / 2;
+                                moved = true;
+                            }
+                            emptyRow--;
+                        }
+                    }
+                }
+
+                // Fill empty spaces with new gems
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    for (let row = 0; row < GRID_SIZE; row++) {
+                        if (!board[row][col]) {
+                            const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                            board[row][col] = new Gem(row, col, color);
+                            board[row][col].y = -CELL_SIZE;
+                            board[row][col].targetY = row * CELL_SIZE + CELL_SIZE / 2;
+                            moved = true;
+                        }
+                    }
+                }
+
+                if (moved) {
+                    animateDrop().then(resolve);
+                    playSound('drop');
+                } else {
+                    resolve();
+                }
+            });
+        }
+
+        function animateDrop() {
+            return new Promise(resolve => {
+                isAnimating = true;
+                const animate = () => {
+                    let done = true;
+                    for (let row = 0; row < GRID_SIZE; row++) {
+                        for (let col = 0; col < GRID_SIZE; col++) {
+                            if (board[row][col]) {
+                                board[row][col].update();
+                                if (Math.abs(board[row][col].y - board[row][col].targetY) > 1) {
+                                    done = false;
+                                }
+                            }
+                        }
+                    }
+                    draw();
+                    if (!done) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        isAnimating = false;
+                        resolve();
+                    }
+                };
+                animate();
+            });
+        }
+
+        async function swapGems(gem1, gem2) {
+            isAnimating = true;
+            playSound('swap');
+
+            // Swap in board
+            board[gem1.row][gem1.col] = gem2;
+            board[gem2.row][gem2.col] = gem1;
+
+            // Swap positions
+            const tempRow = gem1.row;
+            const tempCol = gem1.col;
+            gem1.row = gem2.row;
+            gem1.col = gem2.col;
+            gem2.row = tempRow;
+            gem2.col = tempCol;
+
+            // Animate swap
+            await animateSwap(gem1, gem2);
+
+            const matches = findMatches();
+
+            if (matches.length > 0) {
+                moves++;
+                updateUI();
+                await processMatches();
+            } else {
+                // Swap back if no matches
+                board[gem1.row][gem1.col] = gem2;
+                board[gem2.row][gem2.col] = gem1;
+                const tempRow = gem1.row;
+                const tempCol = gem1.col;
+                gem1.row = gem2.row;
+                gem1.col = gem2.col;
+                gem2.row = tempRow;
+                gem2.col = tempCol;
+                await animateSwap(gem1, gem2);
+            }
+
+            isAnimating = false;
+        }
+
+        function animateSwap(gem1, gem2) {
+            return new Promise(resolve => {
+                const tempTargetX = gem1.targetX;
+                const tempTargetY = gem1.targetY;
+                gem1.targetX = gem2.targetX;
+                gem1.targetY = gem2.targetY;
+                gem2.targetX = tempTargetX;
+                gem2.targetY = tempTargetY;
+
+                const animate = () => {
+                    gem1.update();
+                    gem2.update();
+                    draw();
+                    if (Math.abs(gem1.x - gem1.targetX) > 1 || Math.abs(gem1.y - gem1.targetY) > 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        gem1.x = gem1.targetX;
+                        gem1.y = gem1.targetY;
+                        gem2.x = gem2.targetX;
+                        gem2.y = gem2.targetY;
+                        resolve();
+                    }
+                };
+                animate();
+            });
+        }
+
+        async function processMatches() {
+            let matches = findMatches();
+            while (matches.length > 0) {
+                await removeMatches(matches);
+                await dropGems();
+                matches = findMatches();
+            }
+        }
+
+        function areAdjacent(gem1, gem2) {
+            const rowDiff = Math.abs(gem1.row - gem2.row);
+            const colDiff = Math.abs(gem1.col - gem2.col);
+            return (rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1);
+        }
+
+        function hasValidMoves() {
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    // Try swapping with right neighbor
+                    if (col < GRID_SIZE - 1) {
+                        swapInBoard(row, col, row, col + 1);
+                        if (findMatches().length > 0) {
+                            swapInBoard(row, col, row, col + 1);
+                            return true;
+                        }
+                        swapInBoard(row, col, row, col + 1);
+                    }
+                    // Try swapping with bottom neighbor
+                    if (row < GRID_SIZE - 1) {
+                        swapInBoard(row, col, row + 1, col);
+                        if (findMatches().length > 0) {
+                            swapInBoard(row, col, row + 1, col);
+                            return true;
+                        }
+                        swapInBoard(row, col, row + 1, col);
+                    }
+                }
+            }
+            return false;
+        }
+
+        function swapInBoard(r1, c1, r2, c2) {
+            const temp = board[r1][c1];
+            board[r1][c1] = board[r2][c2];
+            board[r2][c2] = temp;
+        }
+
+        function findHint() {
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    if (col < GRID_SIZE - 1) {
+                        swapInBoard(row, col, row, col + 1);
+                        if (findMatches().length > 0) {
+                            swapInBoard(row, col, row, col + 1);
+                            return {row, col};
+                        }
+                        swapInBoard(row, col, row, col + 1);
+                    }
+                    if (row < GRID_SIZE - 1) {
+                        swapInBoard(row, col, row + 1, col);
+                        if (findMatches().length > 0) {
+                            swapInBoard(row, col, row + 1, col);
+                            return {row, col};
+                        }
+                        swapInBoard(row, col, row + 1, col);
+                    }
+                }
+            }
+            return null;
+        }
+
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('moves').textContent = moves;
+        }
+
+        function findValidSwapForGem(row, col) {
+            const directions = [
+                {dr: -1, dc: 0},  // up
+                {dr: 1, dc: 0},   // down
+                {dr: 0, dc: -1},  // left
+                {dr: 0, dc: 1},   // right
+            ];
+
+            for (const dir of directions) {
+                const newRow = row + dir.dr;
+                const newCol = col + dir.dc;
+
+                if (newRow >= 0 && newRow < GRID_SIZE && newCol >= 0 && newCol < GRID_SIZE) {
+                    swapInBoard(row, col, newRow, newCol);
+                    if (findMatches().length > 0) {
+                        swapInBoard(row, col, newRow, newCol);
+                        return board[newRow][newCol];
+                    }
+                    swapInBoard(row, col, newRow, newCol);
+                }
+            }
+            return null;
+        }
+
+        function shakeGem(gem) {
+            playSound('invalid');
+            const originalX = gem.x;
+            let frame = 0;
+
+            function animateShake() {
+                const offset = Math.sin(frame * 0.8) * 4;
+                gem.x = originalX + offset;
+                draw();
+                frame++;
+                if (frame < 8) {
+                    requestAnimationFrame(animateShake);
+                } else {
+                    gem.x = originalX;
+                    draw();
+                }
+            }
+            animateShake();
+        }
+
+        canvas.addEventListener('click', (e) => {
+            initAudio(); // Initialize audio on first user interaction
+            if (isAnimating) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const col = Math.floor(x / CELL_SIZE);
+            const row = Math.floor(y / CELL_SIZE);
+
+            if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+
+            const clickedGem = board[row][col];
+            if (!clickedGem) return;
+
+            hintGem = null;
+            draw();
+
+            // Find a valid swap for the clicked gem
+            const swapTarget = findValidSwapForGem(row, col);
+
+            if (swapTarget) {
+                swapGems(clickedGem, swapTarget);
+            } else {
+                // No valid swap - show shake animation
+                shakeGem(clickedGem);
+            }
+        });
+
+        document.getElementById('newGame').addEventListener('click', () => {
+            initAudio();
+            init();
+        });
+
+        document.getElementById('toggleSound').addEventListener('click', () => {
+            initAudio();
+            soundEnabled = !soundEnabled;
+            document.getElementById('toggleSound').textContent = `Sound: ${soundEnabled ? 'ON' : 'OFF'}`;
+        });
+
+        document.getElementById('hint').addEventListener('click', () => {
+            hintGem = findHint();
+            if (hintGem) {
+                setTimeout(() => {
+                    hintGem = null;
+                    draw();
+                }, 2000);
+            }
+            draw();
+        });
+
+        // Game loop
+        function gameLoop() {
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        init();
+        gameLoop();
+    </script>
+</body>
+</html>
