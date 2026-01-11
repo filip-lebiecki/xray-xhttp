@@ -10,7 +10,7 @@
       "settings": {
         "clients": [
           {
-            "id": ""
+            "id": "YOUR_UUID_HERE"
           }
         ],
         "decryption": "none"
