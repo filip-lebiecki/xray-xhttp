@@ -67,7 +67,8 @@ Set up NGINX to handle HTTPS and redirect HTTP to HTTPS.
 cd /etc/nginx/sites-available
 wget https://raw.githubusercontent.com/filip-lebiecki/xray-xhttp/refs/heads/main/default_https_site_only
 cd /etc/nginx/sites-enabled/
-rm /etc/nginx/sites-enabled/defaultln -s /etc/nginx/sites-available/default_https_site_only default
+rm /etc/nginx/sites-enabled/default
+ln -s /etc/nginx/sites-available/default_https_site_only default
 nginx -t
 systemctl reload nginx
 ```
