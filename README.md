@@ -1,3 +1,5 @@
+[Youtube](https://youtu.be/NziF6Srh-08?si=vJ97qI2N_eZAgl2m)
+
 # 🛡️ Xray (VLESS) + XHTTP + NGINX Stealth Proxy
 
 This repository documents the setup of a stealth proxy that blends into normal web traffic. By using **NGINX** as a reverse proxy, **Xray** (VLESS) as the core, and the **XHTTP** transport protocol, we can disguise VPN traffic as standard HTTPS requests to a web game or API.
