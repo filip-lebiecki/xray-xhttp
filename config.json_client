@@ -1,0 +1,46 @@
+{
+  "log": {
+    "loglevel": "none"
+  },
+  "inbounds": [
+    {
+      "port": 1080,
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {
+        "udp": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "SERVER_DOMAIN_HERE",
+            "port": 443,
+            "users": [
+              {
+                "id": "YOUR_UUID_HERE",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "SERVER_DOMAIN_HERE",
+          "fingerprint": "chrome"
+        },
+        "xhttpSettings": {
+          "path": "/api/stream",
+          "host": "SERVER_DOMAIN_HERE"
+        }
+      }
+    }
+  ]
+}
